@@ -1003,6 +1003,8 @@ static unsigned char alps_get_packet_id_v7(char *byte)
 		packet_id = V7_PACKET_ID_MULTI;
 	else if ((byte[0] & 0x10) && !(byte[4] & 0x43))
 		packet_id = V7_PACKET_ID_NEW;
+	else if (byte[1] & 0x08)
+		packet_id = V7_PACKET_ID_TRACKSTICK;
 	else
 		packet_id = V7_PACKET_ID_IDLE;
 
@@ -1055,8 +1057,6 @@ static void alps_decode_packet_v7(struct alps_fields *f,
 				  struct psmouse *psmouse)
 {
 	struct alps_data *priv = psmouse->private;
-
-	priv->r.v7.pkt_id = alps_get_packet_id_v7(p);
 
 	alps_get_finger_coordinate_v7(f->pt_img, p, priv->r.v7.pkt_id);
 
@@ -1236,11 +1236,59 @@ static void alps_assign_buttons_v7(struct psmouse *psmouse,
 	priv->prev_phy_btn = priv->phy_btn;
 }
 
+static void alps_process_trackstick_packet_v7(struct psmouse *psmouse)
+{
+	unsigned char    *packet = psmouse->packet;
+	struct alps_data *priv   = psmouse->private;
+	struct input_dev *dev    = priv->dev2;
+
+	int x, y;  /* trackstick vector */
+
+	/* Buttons status is reported for any packet */
+	input_report_key(dev, BTN_LEFT,  !!(0x01 & packet[1]));
+	input_report_key(dev, BTN_RIGHT, !!(0x02 & packet[1]));
+
+	/*
+	 * AlpsPS/2 v7 trackstick produces 2D relative coorinates
+	 * as signed integers (normal binary complement +1 encoding)
+	 */
+
+	x  = (0x3f & packet[2]);       /* low 6 bits */
+	x |= (0x10 & packet[3]) << 2;  /* bit 7      */
+	x |= (0x80 & packet[2]);       /* bit 8      */
+
+	/* x sign */
+	if (0x10 & packet[1])
+		x |= -1 << 8;
+
+	y  = (0x07 & packet[3]);       /* low 3 bits */
+	y |= (0x20 & packet[3]) >> 2;  /* bit 4      */
+	y |= (0x38 & packet[4]) << 1;  /* bits 5 - 7 */
+	y |= (0x80 & packet[4]);       /* bit 8      */
+
+	/* y sign */
+	if (0x20 & packet[1])
+		y |= -1 << 8;
+
+	/* Report trackstick vector */
+	input_report_rel(dev, REL_X,  x / 6);
+	input_report_rel(dev, REL_Y, -y / 8);
+
+	input_sync(dev);
+}
+
 static void alps_process_packet_v7(struct psmouse *psmouse)
 {
 	struct alps_data *priv = psmouse->private;
 	struct alps_fields f = {0};
 	unsigned char *packet = psmouse->packet;
+
+	/* Resolve packet ID */
+	priv->r.v7.pkt_id = alps_get_packet_id_v7(packet);
+
+	/* Process trackstick packet separately */
+	if (priv->r.v7.pkt_id == V7_PACKET_ID_TRACKSTICK)
+		return alps_process_trackstick_packet_v7(psmouse);
 
 	priv->decode_fields(&f, packet, psmouse);
 

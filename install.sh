@@ -1,15 +1,15 @@
-#!/bin/sh
+#!/bin/bash
 
 source ./dkms.conf
 
-MDIR="/usr/lib/modules/$(uname -r)"
+MDIR="/lib/modules/$(uname -r)"
 NEWMDIR="$MDIR/${DEST_MODULE_LOCATION[0]}"
 
 MFILE="$MDIR/kernel/drivers/input/mouse/${BUILT_MODULE_NAME[0]}.ko"
 NEWMFILE="$NEWMDIR/${BUILT_MODULE_NAME[0]}.ko"
 
 M=psmouse-dkms-alpsv7
-V=1.0
+V=1.1
 
 #Print error message and exit
 abort()
